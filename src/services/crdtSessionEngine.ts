@@ -259,25 +259,27 @@ export class CRDTSessionEngine {
   private async persistUpdate(update: Uint8Array): Promise<void> {
     try {
       const db = await openDB();
-      return new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(YJS_STORE, "readwrite");
-        const store = tx.objectStore(YJS_STORE);
+      const tx = db.transaction(YJS_STORE, "readwrite");
+      const store = tx.objectStore(YJS_STORE);
 
-        const getReq = store.get(this.sessionId);
-        getReq.onsuccess = () => {
-          const existing = getReq.result as { sessionId: string; updates: Uint8Array[] } | undefined;
-          const updates = existing?.updates || [];
-          updates.push(update);
+      // Append update to existing session record
+      const getReq = store.get(this.sessionId);
+      getReq.onsuccess = () => {
+        const existing = getReq.result as { sessionId: string; updates: Uint8Array[] } | undefined;
+        const updates = existing?.updates || [];
+        updates.push(update);
 
-          const putReq = updates.length > 100
-            ? store.put({ sessionId: this.sessionId, updates: [Y.encodeStateAsUpdate(this.doc)] })
-            : store.put({ sessionId: this.sessionId, updates });
-          putReq.onerror = () => reject(putReq.error);
-        };
-        getReq.onerror = () => reject(getReq.error);
-        tx.onerror = () => reject(tx.error);
-        tx.oncomplete = () => resolve();
-      });
+        const lastUpdate = (this.yState.get("lastUpdate") as number) || Date.now();
+
+        // Keep only last 100 updates to prevent unbounded growth
+        if (updates.length > 100) {
+          // Compact: encode full state as single update
+          const compacted = Y.encodeStateAsUpdate(this.doc);
+          store.put({ sessionId: this.sessionId, lastUpdate, updates: [compacted] });
+        } else {
+          store.put({ sessionId: this.sessionId, lastUpdate, updates });
+        }
+      };
     } catch (err) {
       console.error("[CRDT] Failed to persist update:", err);
     }
@@ -331,14 +333,10 @@ export async function listActiveSessions(): Promise<{ sessionId: string; lastUpd
       req.onsuccess = (e) => {
         const cursor = (e.target as IDBRequest).result as IDBCursorWithValue | null;
         if (cursor) {
-          const value = cursor.value as { sessionId: string; updates: Uint8Array[] };
-          // Peek at last update time from first update's doc
-          const doc = new Y.Doc();
-          Y.applyUpdate(doc, value.updates[value.updates.length - 1]);
-          const yState = doc.getMap("state");
+          const value = cursor.value as { sessionId: string; lastUpdate?: number; updates: Uint8Array[] };
           sessions.push({
             sessionId: value.sessionId,
-            lastUpdate: (yState.get("lastUpdate") as number) || 0,
+            lastUpdate: value.lastUpdate || 0,
           });
           cursor.continue();
         } else {
