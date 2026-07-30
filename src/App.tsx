@@ -61,11 +61,8 @@ type Screen =
   | "profile"
   | "fitness"
   | "avatar"
-  | "workoutPlans"
   | "privacy"
-  | "terms&conditions"
-  | "battle"
-  | "tutorials";
+  | "terms&conditions";
 
 type ScreenTransitionMap = Record<Screen, readonly Screen[]>;
 
@@ -85,11 +82,8 @@ const SCREEN_TRANSITIONS: ScreenTransitionMap = {
   about: ["welcome"],
   contact: ["welcome"],
   avatar: ["welcome"],
-  workoutPlans: ["welcome"],
-  privacy: ["welcome"],
+  "privacy": ["welcome"],
   "terms&conditions": ["welcome"],
-  battle: ["welcome"],
-  tutorials: ["welcome", "calibration"],
 };
 
 
